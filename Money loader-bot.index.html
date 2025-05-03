@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>MONEY LOADER BOT - Deriv Trading</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      color: white;
+      text-align: center;
+      background: linear-gradient(270deg, red, orange, yellow, green, blue, indigo, violet);
+      background-size: 1400% 1400%;
+      animation: rainbow 30s ease infinite;
+    }
+
+    @keyframes rainbow {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    input, button {
+      padding: 10px;
+      margin: 10px;
+      font-size: 16px;
+      border-radius: 5px;
+      border: none;
+    }
+
+    pre {
+      text-align: left;
+      background: rgba(0, 0, 0, 0.5);
+      padding: 10px;
+      max-height: 300px;
+      overflow-y: auto;
+      margin: 20px auto;
+      width: 80%;
+      border-radius: 10px;
+    }
+
+    #robotImage {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      margin: 20px;
+    }
+
+    h1 {
+      font-size: 2em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    #startButton, #stopButton {
+      background-color: #4CAF50;
+      color: white;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    #stopButton {
+      background-color: #f44336;
+    }
+  </style>
+</head>
+<body>
+  <h1>MONEY LOADER BOT</h1>
+  <img id="robotImage" src="https://www.kindpng.com/picc/m/59-595363_robot-image-hd-png-download.png" alt="Robot Image">
+  <br>
+
+  <label>Starting Stake ($):</label>
+  <input type="number" id="startAmount" value="1" step="0.01">
+  <br>
+  <label>Enter API Token:</label>
+  <input type="text" id="apiToken" placeholder="Enter your Deriv API Token">
+  <br>
+  <label>Enter Access Password:</label>
+  <input type="password" id="accessPassword" placeholder="Enter Access Password">
+  <br>
+  <button id="startButton" onclick="startBot()">Start Bot</button>
+  <button id="stopButton" onclick="stopBot()" disabled>Stop Bot</button>
+
+  <pre id="log"></pre>
+
+  <script>
+    let token = "";
+    let ws, stake, lastContractId;
+    let currentStake = 1;
+    let isBotRunning = false;
+
+    function log(message) {
+      document.getElementById('log').textContent += message + "\n";
+    }
+
+    function startBot() {
+      if (isBotRunning) return;
+
+      const enteredPassword = document.getElementById("accessPassword").value;
+      if (enteredPassword !== "Moneyloader25@") {
+        log("Access Denied: Invalid password.");
+        return;
+      }
+
+      const userToken = document.getElementById("apiToken").value.trim();
+      if (!userToken) {
+        log("Please enter your API token.");
+        return;
+      }
+
+      token = userToken;
+      stake = parseFloat(document.getElementById("startAmount").value);
+      currentStake = stake;
+      isBotRunning = true;
+
+      document.getElementById("startButton").disabled = true;
+      document.getElementById("stopButton").disabled = false;
+      log("Starting bot...");
+
+      ws = new WebSocket("wss://ws.derivws.com/websockets/v3?app_id=1089");
+
+      ws.onopen = () => {
+        log("Connecting...");
+        ws.send(JSON.stringify({ authorize: token }));
+      };
+
+      ws.onmessage = (msg) => {
+        const data = JSON.parse(msg.data);
+
+        if (data.error) {
+          log("Error: " + data.error.message);
+          return;
+        }
+
+        if (data.msg_type === "authorize") {
+          log("Authorized.");
+          trade();
+        }
+
+        if (data.msg_type === "buy") {
+          lastContractId = data.buy.contract_id;
+          log(`Trade sent: OVER 5 ($${currentStake})`);
+          ws.send(JSON.stringify({ proposal_open_contract: 1, contract_id: lastContractId }));
+        }
+
+        if (data.msg_type === "proposal_open_contract") {
+          if (data.proposal_open_contract.is_sold) {
+            const profit = parseFloat(data.proposal_open_contract.profit);
+            const win = profit >= 0;
+
+            if (win) {
+              log(`Result: WIN ($${profit.toFixed(2)})`);
+              currentStake = stake;
+            } else {
+              log(`Result: WIN ($0.00)`);
+              currentStake *= 2;
+            }
+
+            if (isBotRunning) {
+              setTimeout(trade, 1500);
+            }
+          } else {
+            setTimeout(() => {
+              ws.send(JSON.stringify({ proposal_open_contract: 1, contract_id: lastContractId }));
+            }, 1000);
+          }
+        }
+      };
+
+      ws.onerror = () => log("WebSocket error");
+      ws.onclose = () => log("WebSocket closed");
+    }
+
+    function stopBot() {
+      isBotRunning = false;
+      document.getElementById("startButton").disabled = false;
+      document.getElementById("stopButton").disabled = true;
+      log("Bot has been stopped.");
+      ws.close();
+    }
+
+    function trade() {
+      if (!isBotRunning) return;
+
+      const tradeRequest = {
+        buy: 1,
+        price: currentStake,
+        parameters: {
+          amount: currentStake,
+          basis: "stake",
+          contract_type: "DIGITOVER",
+          currency: "USD",
+          duration: 1,
+          duration_unit: "t",
+          symbol: "R_100",
+          barrier: "5"
+        }
+      };
+
+      ws.send(JSON.stringify(tradeRequest));
+    }
+  </script>
+</body>
+</html>
